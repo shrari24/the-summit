@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>القمة - التحديث العالمي v1.2</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap');
+        body { margin: 0; overflow: hidden; font-family: 'Cairo', sans-serif; background: #020617; color: white; touch-action: none; }
+        .glass { background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 2.5rem; }
+        #joy-base { position: absolute; bottom: 40px; left: 40px; width: 100px; height: 100px; background: rgba(255,255,255,0.05); border-radius: 50%; border: 2px solid rgba(255,255,255,0.1); }
+        #joy-stick { position: absolute; top: 25px; left: 25px; width: 50px; height: 50px; background: white; border-radius: 50%; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        .btn-act { width: 80px; height: 80px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.7); border: 2px solid rgba(255,255,255,0.3); font-size: 2rem; }
+        .btn-act:active { transform: scale(0.9); background: white; color: black; }
+        #alt-meter { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); height: 200px; width: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; }
+        #alt-fill { position: absolute; bottom: 0; width: 100%; background: #3b82f6; transition: height 0.1s; }
+    </style>
+</head>
+<body>
+    <div id="ui" class="absolute inset-0 pointer-events-none z-50">
+        <!-- القائمة الرئيسية -->
+        <div id="menu" class="absolute inset-0 glass flex flex-col items-center justify-center p-8 pointer-events-auto">
+            <h1 class="text-8xl font-black italic mb-2 tracking-tighter text-white uppercase italic">القمة</h1>
+            <p class="text-blue-500 font-bold tracking-[0.5em] mb-12 text-xs uppercase italic">OctaCon Secure Project</p>
+            <div class="w-full max-w-sm">
+                <input id="p-name" type="text" placeholder="اسمك القتالي..." class="w-full bg-slate-900 border border-slate-700 p-5 rounded-3xl text-center font-bold text-2xl mb-6 outline-none">
+                <button onclick="startMission()" class="w-full py-8 bg-blue-600 rounded-[3rem] font-black text-3xl shadow-2xl transition active:scale-95">دخول الميدان</button>
+            </div>
+        </div>
+
+        <!-- واجهة اللعب -->
+        <div id="hud" class="hidden w-full h-full p-6 flex flex-col justify-between">
+            <div class="flex justify-between items-start">
+                <div class="glass px-6 py-3 border-blue-500/30">
+                    <span class="text-blue-400 text-[10px] font-bold block uppercase tracking-widest">الأعداء</span>
+                    <span id="enemy-count" class="text-3xl font-black">100</span>
+                </div>
+                <div class="glass px-6 py-3 border-yellow-500/30">
+                    <span class="text-yellow-400 text-[10px] font-bold block uppercase tracking-widest">ذهب OctaCon</span>
+                    <span id="gold-count" class="text-3xl font-black">0</span>
+                </div>
+            </div>
+
+            <!-- زر القفز -->
+            <div id="jump-zone" class="absolute inset-0 flex items-center justify-center pointer-events-auto hidden">
+                <button onclick="jumpFromPlane()" class="px-20 py-8 bg-yellow-500 text-black font-black text-4xl rounded-full shadow-[0_0_60px_rgba(251,191,36,0.5)] animate-bounce uppercase">قفز الآن! 🪂</button>
+            </div>
+
+            <!-- عداد الارتفاع -->
+            <div id="alt-meter" class="hidden">
+                <div id="alt-fill"></div>
+            </div>
+
+            <div id="controls" class="hidden w-full h-full relative pointer-events-auto">
+                <div id="joy-base"><div id="joy-stick"></div></div>
+                <div class="absolute bottom-10 right-10 flex flex-col gap-6">
+                    <button onmousedown="shooting=true" onmouseup="shooting=false" ontouchstart="shooting=true" ontouchend="shooting=false" class="btn-act bg-red-600">🔥</button>
+                    <button onclick="build()" class="btn-act bg-blue-600">🧱</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let scene, camera, renderer, player, plane, clock, joystick = {x:0, y:0}, shooting = false;
+        let enemies = [], bullets = [], gold = 0, state = 'MENU';
+        let altitude = 500;
+
+        function init() {
+            scene = new THREE.Scene(); scene.background = new THREE.Color(0x020617);
+            scene.fog = new THREE.FogExp2(0x020617, 0.003);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 2000);
+            renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+            scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+            const sun = new THREE.DirectionalLight(0xffffff, 1); sun.position.set(50, 300, 50); scene.add(sun);
+            const grid = new THREE.GridHelper(2000, 50, 0x1e293b, 0x0f172a); scene.add(grid);
+            clock = new THREE.Clock(); animate();
+        }
+
+        function startMission() {
+            state = 'PLANE';
+            document.getElementById('menu').classList.add('hidden');
+            document.getElementById('hud').classList.remove('hidden');
+            document.getElementById('jump-zone').classList.remove('hidden');
+            
+            // طائرة النقل
+            const geo = new THREE.BoxGeometry(10, 5, 35);
+            const mat = new THREE.MeshPhongMaterial({color: 0x334155});
+            plane = new THREE.Mesh(geo, mat); plane.position.set(0, 500, 1000);
+            scene.add(plane);
+
+            player = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2), new THREE.MeshPhongMaterial({color: 0x3b82f6}));
+            player.add(body); scene.add(player);
+        }
+
+        function jumpFromPlane() {
+            state = 'FALLING';
+            document.getElementById('jump-zone').classList.add('hidden');
+            document.getElementById('alt-meter').classList.remove('hidden');
+            player.position.copy(plane.position);
+            player.add(camera); camera.position.set(0, 6, 15);
+        }
+
+        function spawnEnemies() {
+            for(let i=0; i<99; i++) {
+                const en = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2), new THREE.MeshPhongMaterial({color: 0xef4444}));
+                en.position.set((Math.random()-0.5)*1800, 2, (Math.random()-0.5)*1800);
+                scene.add(en); enemies.push(en);
+            }
+        }
+
+        function build() {
+            const w = new THREE.Mesh(new THREE.BoxGeometry(8, 6, 1), new THREE.MeshPhongMaterial({color: 0x3b82f6, transparent:true, opacity:0.6}));
+            const d = new THREE.Vector3(0,0,-1).applyQuaternion(player.quaternion);
+            w.position.copy(player.position).add(d.multiplyScalar(8)); w.position.y = 3;
+            w.quaternion.copy(player.quaternion); scene.add(w);
+        }
+
+        function fire() {
+            const b = new THREE.Mesh(new THREE.SphereGeometry(0.3), new THREE.MeshBasicMaterial({color: 0xffff00}));
+            b.position.copy(player.position).add(new THREE.Vector3(0, 2, 0));
+            const d = new THREE.Vector3(0,0,-1).applyQuaternion(player.quaternion);
+            b.velocity = d.multiplyScalar(6); scene.add(b); bullets.push(b);
+        }
+
+        let shootCD = 0;
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = clock.getDelta();
+
+            if(state === 'PLANE') {
+                plane.position.z -= 1.5;
+                camera.position.set(plane.position.x, plane.position.y+40, plane.position.z+80);
+                camera.lookAt(plane.position);
+            } 
+            else if(state === 'FALLING') {
+                altitude -= 2.2; player.position.y = altitude; player.position.z -= 0.6;
+                document.getElementById('alt-fill').style.height = (altitude/500 * 100) + '%';
+                if(altitude <= 2) {
+                    state = 'GROUND'; altitude = 2; player.position.y = 2;
+                    document.getElementById('alt-meter').classList.add('hidden');
+                    document.getElementById('controls').classList.remove('hidden');
+                    spawnEnemies();
+                }
+            }
+            else if(state === 'GROUND') {
+                player.rotation.y -= joystick.x * 0.05;
+                player.translateZ(-joystick.y * 1.2);
+                if(shooting && shootCD <= 0) { fire(); shootCD = 0.15; }
+                if(shootCD > 0) shootCD -= dt;
+
+                enemies.forEach(en => {
+                    if(en.position.distanceTo(player.position) < 60) {
+                        en.lookAt(player.position.x, 2, player.position.z); en.translateZ(0.12);
+                    }
+                });
+
+                bullets.forEach((b, i) => {
+                    b.position.add(b.velocity);
+                    enemies.forEach((en, ei) => {
+                        if(b.position.distanceTo(en.position) < 3.5) {
+                            scene.remove(en); enemies.splice(ei, 1); scene.remove(b); bullets.splice(i, 1);
+                            gold += 300; document.getElementById('gold-count').innerText = gold;
+                            document.getElementById('enemy-count').innerText = enemies.length + 1;
+                        }
+                    });
+                });
+            }
+            renderer.render(scene, camera);
+        }
+
+        const b = document.getElementById('joy-base'), s = document.getElementById('joy-stick'); let active = false;
+        b.addEventListener('touchstart', (e) => { active = true; e.preventDefault(); });
+        window.addEventListener('touchmove', (e) => {
+            if(!active) return; const r = b.getBoundingClientRect(), cx = r.left + r.width/2, cy = r.top + r.height/2;
+            const tx = e.touches[0].clientX - cx, ty = e.touches[0].clientY - cy;
+            const d = Math.min(Math.sqrt(tx*tx+ty*ty), 35), a = Math.atan2(ty, tx);
+            s.style.transform = `translate(${Math.cos(a)*d}px, ${Math.sin(a)*d}px)`;
+            joystick = { x: (Math.cos(a)*d)/35, y: (Math.sin(a)*d)/35 };
+        });
+        window.addEventListener('touchend', () => { active = false; s.style.transform = ''; joystick = {x:0, y:0}; });
+        window.onload = init;
+    </script>
+</body>
+</html>
+
