@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>OctaCon - القمة الاحترافية</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap');
+        body { margin: 0; overflow: hidden; font-family: 'Cairo', sans-serif; background: #020617; color: white; touch-action: none; }
+        canvas { display: block; }
+        .ui-screen { position: absolute; inset: 0; pointer-events: none; z-index: 100; }
+        .interactive { pointer-events: auto; }
+        .glass { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 2rem; }
+        
+        /* تحسين الجويستيك */
+        #joy-base { position: absolute; bottom: 50px; left: 50px; width: 110px; height: 110px; background: rgba(255,255,255,0.05); border-radius: 50%; border: 2px solid rgba(255,255,255,0.1); }
+        #joy-stick { position: absolute; top: 30px; left: 30px; width: 50px; height: 50px; background: white; border-radius: 50%; box-shadow: 0 0 30px rgba(59, 130, 246, 0.5); }
+        
+        /* أزرار الإجراءات */
+        .action-btn { width: 85px; height: 85px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.8); border: 2px solid rgba(255,255,255,0.2); font-size: 2rem; transition: 0.2s; box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
+        .action-btn:active { transform: scale(0.9); background: white; color: black; }
+        
+        .crosshair { position: absolute; top: 50%; left: 50%; width: 30px; height: 30px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; transform: translate(-50%, -50%); }
+        .crosshair::before { content: ''; position: absolute; top: 50%; left: 50%; width: 2px; height: 10px; background: #3b82f6; transform: translate(-50%, -50%); }
+        .crosshair::after { content: ''; position: absolute; top: 50%; left: 50%; width: 10px; height: 2px; background: #3b82f6; transform: translate(-50%, -50%); }
+
+        @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        .danger-zone { animation: pulse-red 2s infinite; }
+    </style>
+</head>
+<body>
+    <div class="ui-screen">
+        <!-- القائمة الرئيسية المحدثة -->
+        <div id="menu" class="absolute inset-0 glass flex flex-col items-center justify-center p-8 interactive">
+            <h1 class="text-9xl font-black italic mb-2 tracking-tighter text-white uppercase italic">القمة</h1>
+            <p class="text-blue-500 font-bold tracking-[0.6em] mb-16 text-xs uppercase">OctaCon Engineering</p>
+            <div class="w-full max-w-sm space-y-6">
+                <div class="bg-slate-900/80 p-6 rounded-[2rem] border border-slate-700 text-center">
+                    <span class="text-slate-500 text-[10px] font-bold uppercase block mb-2">رصيد الذهب</span>
+                    <span id="menu-gold" class="text-3xl font-black text-yellow-500">0 🪙</span>
+                </div>
+                <button onclick="launchMission()" class="w-full py-8 bg-blue-600 rounded-[2.5rem] font-black text-3xl shadow-[0_20px_50px_rgba(37,99,235,0.4)] transition active:scale-95 uppercase italic">غزو الميدان</button>
+            </div>
+        </div>
+
+        <!-- الواجهةHUD الاحترافية -->
+        <div id="hud" class="hidden w-full h-full p-8 flex flex-col justify-between">
+            <div class="flex justify-between items-start">
+                <div class="space-y-4">
+                    <div class="glass px-6 py-3 flex items-center gap-4 border-blue-500/30">
+                        <span class="text-blue-400 font-black">👥</span>
+                        <span id="alive" class="text-2xl font-black">100</span>
+                    </div>
+                    <div class="w-48 h-3 bg-slate-900 rounded-full border border-slate-700 overflow-hidden">
+                        <div id="hp-bar" class="w-full h-full bg-gradient-to-r from-red-600 to-red-400 transition-all"></div>
+                    </div>
+                </div>
+                <div class="glass px-6 py-3 border-yellow-500/30 flex items-center gap-4">
+                    <span id="gold" class="text-2xl font-black text-yellow-500">0</span>
+                    <span class="text-yellow-500 text-xl font-bold">🪙</span>
+                </div>
+            </div>
+
+            <div id="combat-ctrls" class="hidden w-full h-full relative interactive">
+                <div class="crosshair"></div>
+                <div id="joy-base"><div id="joy-stick"></div></div>
+                <div class="absolute bottom-10 right-10 flex flex-col gap-8">
+                    <button onmousedown="shooting=true" onmouseup="shooting=false" ontouchstart="shooting=true" ontouchend="shooting=false" class="action-btn bg-red-600 border-none shadow-2xl danger-zone">🔥</button>
+                    <div class="flex gap-4">
+                        <button onclick="placeWall()" class="action-btn bg-blue-600 border-none">🧱</button>
+                        <button onclick="jump()" class="action-btn bg-slate-700 border-none text-xl">⏫</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let scene, camera, renderer, player, clock, state='MENU', gold=0, joy={x:0, y:0}, shooting=false;
+        let bullets = [], enemies = [], structures = [];
+
+        function init() {
+            scene = new THREE.Scene(); scene.background = new THREE.Color(0x020617);
+            scene.fog = new THREE.FogExp2(0x020617, 0.002);
+            
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 2000);
+            renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // إضاءة سينمائية
+            scene.add(new THREE.HemisphereLight(0x4433aa, 0x111122, 1.5));
+            const sun = new THREE.DirectionalLight(0xffffff, 1); sun.position.set(100, 300, 100); sun.castShadow = true;
+            scene.add(sun);
+
+            // أرضية الميدان
+            const floor = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshPhongMaterial({color: 0x0f172a}));
+            floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; scene.add(floor);
+            scene.add(new THREE.GridHelper(2000, 40, 0x1e293b, 0x0f172a));
+
+            // توليد المدينة الاحترافية
+            for(let i=0; i<120; i++) {
+                const h = 10 + Math.random() * 60;
+                const building = new THREE.Mesh(
+                    new THREE.BoxGeometry(10, h, 10),
+                    new THREE.MeshPhongMaterial({color: Math.random() > 0.5 ? 0x1e293b : 0x0f172a})
+                );
+                building.position.set((Math.random()-0.5)*1800, h/2, (Math.random()-0.5)*1800);
+                building.castShadow = true; building.receiveShadow = true;
+                scene.add(building);
+            }
+
+            clock = new THREE.Clock(); animate();
+            setupJoystick();
+        }
+
+        function launchMission() {
+            state = 'GROUND';
+            document.getElementById('menu').classList.add('hidden');
+            document.getElementById('hud').classList.remove('hidden');
+            document.getElementById('combat-ctrls').classList.remove('hidden');
+            
+            // إنشاء شخصية اللاعب الاحترافية
+            player = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2), new THREE.MeshPhongMaterial({color: 0x3b82f6}));
+            const head = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), new THREE.MeshPhongMaterial({color: 0xffffff}));
+            head.position.y = 2.8; player.add(body, head);
+            player.position.y = 2; scene.add(player);
+            
+            player.add(camera); camera.position.set(0, 7, 18);
+            spawnEnemies();
+        }
+
+        function spawnEnemies() {
+            for(let i=0; i<50; i++) {
+                const en = new THREE.Mesh(new THREE.BoxGeometry(2.5, 4.5, 2.5), new THREE.MeshPhongMaterial({color: 0xef4444}));
+                en.position.set((Math.random()-0.5)*1600, 2.25, (Math.random()-0.5)*1600);
+                scene.add(en); enemies.push(en);
+            }
+        }
+
+        function fire() {
+            const b = new THREE.Mesh(new THREE.SphereGeometry(0.4), new THREE.MeshBasicMaterial({color: 0xffff00}));
+            b.position.copy(player.position).add(new THREE.Vector3(0, 2, 0));
+            const d = new THREE.Vector3(0,0,-1).applyQuaternion(player.quaternion);
+            b.velocity = d.multiplyScalar(8); scene.add(b); bullets.push(b);
+            if(navigator.vibrate) navigator.vibrate(20);
+        }
+
+        function placeWall() {
+            const w = new THREE.Mesh(new THREE.BoxGeometry(10, 8, 2), new THREE.MeshPhongMaterial({color: 0x3b82f6, transparent:true, opacity:0.5}));
+            const d = new THREE.Vector3(0,0,-1).applyQuaternion(player.quaternion);
+            w.position.copy(player.position).add(d.multiplyScalar(10)); w.position.y = 4;
+            w.quaternion.copy(player.quaternion); scene.add(w);
+        }
+
+        function jump() { if(player.position.y <= 2.1) player.position.y = 15; }
+
+        let shootCD = 0;
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = clock.getDelta();
+
+            if(state === 'GROUND') {
+                player.rotation.y -= joy.x * 0.05;
+                player.translateZ(-joy.y * 1.5);
+                if(player.position.y > 2) player.position.y -= 0.5;
+
+                if(shooting && shootCD <= 0) { fire(); shootCD = 0.15; }
+                if(shootCD > 0) shootCD -= dt;
+
+                bullets.forEach((b, i) => {
+                    b.position.add(b.velocity);
+                    enemies.forEach((en, ei) => {
+                        if(b.position.distanceTo(en.position) < 5) {
+                            scene.remove(en); enemies.splice(ei, 1);
+                            scene.remove(b); bullets.splice(i, 1);
+                            gold += 500;
+                            document.getElementById('gold').innerText = gold;
+                            document.getElementById('alive').innerText = enemies.length;
+                        }
+                    });
+                });
+
+                // حركة الأعداء نحوك
+                enemies.forEach(en => {
+                    if(en.position.distanceTo(player.position) < 100) {
+                        en.lookAt(player.position.x, 2.25, player.position.z);
+                        en.translateZ(0.15);
+                    }
+                });
+            }
+            renderer.render(scene, camera);
+        }
+
+        function setupJoystick() {
+            const b = document.getElementById('joy-base'), s = document.getElementById('joy-stick');
+            let active = false;
+            const move = (e) => {
+                if(!active) return;
+                const r = b.getBoundingClientRect(), cx = r.left + r.width/2, cy = r.top + r.height/2;
+                const tx = (e.touches ? e.touches[0].clientX : e.clientX) - cx, ty = (e.touches ? e.touches[0].clientY : e.clientY) - cy;
+                const d = Math.min(Math.sqrt(tx*tx+ty*ty), 40), a = Math.atan2(ty, tx);
+                s.style.transform = `translate(${Math.cos(a)*d}px, ${Math.sin(a)*d}px)`;
+                joy = { x: (Math.cos(a)*d)/40, y: (Math.sin(a)*d)/40 };
+            };
+            b.addEventListener('touchstart', (e) => { active = true; e.preventDefault(); });
+            window.addEventListener('touchmove', move);
+            window.addEventListener('touchend', () => { active = false; s.style.transform = ''; joy = {x:0, y:0}; });
+        }
+
+        window.onload = init;
+        window.onresize = () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); };
+    </script>
+</body>
+</html>
+
