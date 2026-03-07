@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>OctaCon - القمة: الجيل الجديد</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap');
+        body { margin: 0; overflow: hidden; font-family: 'Cairo', sans-serif; background: #020617; color: white; touch-action: none; user-select: none; }
+        canvas { display: block; }
+        .ui-screen { position: absolute; inset: 0; pointer-events: none; z-index: 100; }
+        .interactive { pointer-events: auto; }
+        .glass { background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(25px); border: 1px solid rgba(255,255,255,0.1); border-radius: 2.5rem; }
+        
+        /* رادار الخريطة الدائري */
+        #radar-container { position: absolute; top: 25px; right: 25px; width: 150px; height: 150px; border: 3px solid #3b82f6; border-radius: 50%; overflow: hidden; background: rgba(0,0,0,0.85); box-shadow: 0 0 20px rgba(59, 130, 246, 0.3); }
+        #radar-canvas { width: 100%; height: 100%; }
+
+        /* أداة التحكم QX المطور */
+        #joy-base { position: absolute; bottom: 60px; left: 60px; width: 120px; height: 120px; background: rgba(255,255,255,0.05); border-radius: 50%; border: 2px solid rgba(255,255,255,0.15); }
+        #joy-stick { position: absolute; top: 35px; left: 35px; width: 50px; height: 50px; background: radial-gradient(circle, #fff, #cbd5e1); border-radius: 50%; box-shadow: 0 0 30px rgba(59, 130, 246, 0.7); }
+        
+        .btn-action { width: 85px; height: 85px; border-radius: 50%; display: flex; items-center; justify-center; background: rgba(0,0,0,0.85); border: 1px solid rgba(255,255,255,0.2); font-size: 2rem; transition: 0.2s; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
+        .btn-action:active { transform: scale(0.9); background: white; color: black; }
+        
+        .loading-screen { position: absolute; inset: 0; background: #020617; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
+    </style>
+</head>
+<body>
+    <div id="loading" class="loading-screen">
+        <div class="w-24 h-24 border-8 border-blue-600 border-t-transparent rounded-full animate-spin mb-8"></div>
+        <h1 class="text-4xl font-black italic text-white uppercase italic">القمة v8.0</h1>
+        <p class="text-blue-500 font-bold tracking-[0.4em] text-xs">OctaCon Secure Engine</p>
+    </div>
+
+    <div class="ui-screen">
+        <!-- القائمة الرئيسية -->
+        <div id="menu" class="absolute inset-0 glass flex flex-col items-center justify-center p-8 interactive hidden">
+            <h1 class="text-9xl font-black italic mb-2 tracking-tighter text-white uppercase italic">القمة</h1>
+            <p class="text-blue-500 font-bold tracking-[0.6em] mb-16 text-xs uppercase">المحرك الواقعي للجيل القادم</p>
+            <button onclick="startGame()" class="w-full max-w-md py-10 bg-blue-600 rounded-[3.5rem] font-black text-4xl shadow-[0_25px_60px_rgba(37,99,235,0.5)] transition active:scale-95 uppercase italic">اقتحام المدينة</button>
+        </div>
+
+        <!-- HUD -->
+        <div id="hud" class="hidden w-full h-full p-10 flex flex-col justify-between">
+            <div class="flex justify-between items-start">
+                <div class="glass px-8 py-4 border-blue-500/30">
+                    <span id="state-lbl" class="text-blue-400 text-[10px] font-bold block uppercase tracking-widest text-center mb-1">وضعية المشي</span>
+                    <span id="gold-text" class="text-3xl font-black text-yellow-500">0 🪙</span>
+                </div>
+                <div id="radar-container"><canvas id="radar-canvas"></canvas></div>
+            </div>
+
+            <div id="controls" class="hidden w-full h-full relative interactive">
+                <div id="joy-base"><div id="joy-stick"></div></div>
+                <div class="absolute bottom-10 right-10 flex flex-col gap-8">
+                    <button id="car-enter" onclick="toggleDriving()" class="btn-action bg-yellow-600 hidden">🚗</button>
+                    <button id="combat-btn" onmousedown="fireBullet()" ontouchstart="fireBullet()" class="btn-action bg-red-600 text-4xl">🔥</button>
+                    <button onclick="jumpHero()" class="btn-action bg-slate-700 text-2xl font-black">⏫</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let scene, camera, renderer, player, clock, state='MENU', joy={x:0, y:0};
+        let npcs = [], carObjects = [], bullets = [], mapCtx, mapCanvas;
+        let activeCar = null, driveMode = false;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x020617);
+            scene.fog = new THREE.FogExp2(0x020617, 0.001);
+            
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 5000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // إضاءة سينمائية
+            scene.add(new THREE.HemisphereLight(0x4433aa, 0x111122, 1.8));
+            const sun = new THREE.DirectionalLight(0xffcc88, 1.5);
+            sun.position.set(200, 500, 200); sun.castShadow = true;
+            scene.add(sun);
+
+            mapCanvas = document.getElementById('radar-canvas');
+            mapCtx = mapCanvas.getContext('2d');
+            mapCanvas.width = 150; mapCanvas.height = 150;
+
+            buildWorld();
+            clock = new THREE.Clock();
+            
+            setTimeout(() => {
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('menu').classList.remove('hidden');
+            }, 1500);
+
+            animate();
+            setupController();
+        }
+
+        // بناء الشخصيات الواقعية (رأس، جسم، أطراف)
+        function createHuman(mainColor = 0xef4444) {
+            const group = new THREE.Group();
+            // جذع
+            const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 1.5, 4, 8), new THREE.MeshPhongMaterial({color: mainColor}));
+            torso.position.y = 1.8; group.add(torso);
+            // رأس
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.45, 16, 16), new THREE.MeshPhongMaterial({color: 0xffdbac}));
+            head.position.y = 3.2; group.add(head);
+            // أطراف
+            const limbGeo = new THREE.CapsuleGeometry(0.2, 1.2, 4, 8);
+            const limbMat = new THREE.MeshPhongMaterial({color: mainColor});
+            const armL = new THREE.Mesh(limbGeo, limbMat); armL.position.set(-0.8, 2, 0); group.add(armL);
+            const armR = armL.clone(); armR.position.x = 0.8; group.add(armR);
+            const legL = new THREE.Mesh(limbGeo, limbMat); legL.position.set(-0.4, 0.6, 0); group.add(legL);
+            const legR = legL.clone(); legR.position.x = 0.4; group.add(legR);
+            group.castShadow = true;
+            return group;
+        }
+
+        // بناء سيارات رياضية واقعية
+        function createSportCar(bodyColor = 0x3b82f6) {
+            const group = new THREE.Group();
+            // الهيكل
+            const base = new THREE.Mesh(new THREE.BoxGeometry(8, 2, 16), new THREE.MeshPhongMaterial({color: bodyColor}));
+            base.position.y = 1.5; group.add(base);
+            const cabin = new THREE.Mesh(new THREE.BoxGeometry(6, 2.5, 8), new THREE.MeshPhongMaterial({color: 0x000000, transparent: true, opacity: 0.8}));
+            cabin.position.set(0, 3.5, -1); group.add(cabin);
+            // العجلات
+            const wheelGeo = new THREE.CylinderGeometry(1.2, 1.2, 1.2, 16);
+            const wheelMat = new THREE.MeshPhongMaterial({color: 0x111111});
+            const wPos = [[-4.2, 1.2, 5.5], [4.2, 1.2, 5.5], [-4.2, 1.2, -5.5], [4.2, 1.2, -5.5]];
+            wPos.forEach(p => {
+                const w = new THREE.Mesh(wheelGeo, wheelMat);
+                w.rotation.z = Math.PI/2; w.position.set(...p);
+                group.add(w);
+            });
+            // المصابيح
+            const headLamp = new THREE.Mesh(new THREE.SphereGeometry(0.6), new THREE.MeshBasicMaterial({color: 0xffffff}));
+            headLamp.position.set(-2.5, 1.5, -8); group.add(headLamp);
+            const headLampR = headLamp.clone(); headLampR.position.x = 2.5; group.add(headLampR);
+            return group;
+        }
+
+        function buildWorld() {
+            const floor = new THREE.Mesh(new THREE.PlaneGeometry(5000, 5000), new THREE.MeshPhongMaterial({color: 0x0f172a}));
+            floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; scene.add(floor);
+            scene.add(new THREE.GridHelper(5000, 60, 0x1e293b, 0x020617));
+
+            const gridSize = 250;
+            for(let x = -10; x <= 10; x++) {
+                for(let z = -10; z <= 10; z++) {
+                    const px = x*gridSize, pz = z*gridSize;
+                    if(x%3===0 || z%3===0) {
+                        // شوارع
+                        const rd = new THREE.Mesh(new THREE.PlaneGeometry(gridSize, gridSize), new THREE.MeshPhongMaterial({color: 0x1e293b}));
+                        rd.rotation.x = -Math.PI/2; rd.position.set(px, 0.1, pz); scene.add(rd);
+                        if(Math.random() > 0.95) {
+                            const c = createSportCar(); c.position.set(px, 0, pz);
+                            scene.add(c); carObjects.push(c);
+                        }
+                        if(Math.random() > 0.92) {
+                            const npc = createHuman(); npc.position.set(px+(Math.random()-0.5)*80, 0, pz+(Math.random()-0.5)*80);
+                            scene.add(npc); npcs.push(npc);
+                        }
+                    } else {
+                        // أبراج زجاجية
+                        const h = 60 + Math.random()*250;
+                        const tower = new THREE.Mesh(new THREE.BoxGeometry(140, h, 140), new THREE.MeshPhongMaterial({color: 0x020617, shininess: 100}));
+                        tower.position.set(px, h/2, pz); scene.add(tower);
+                        // تفاصيل النوافذ
+                        const winG = new THREE.BoxGeometry(142, 2, 142);
+                        const winM = new THREE.MeshBasicMaterial({color: 0x3b82f6, transparent: true, opacity: 0.15});
+                        for(let j=15; j<h; j+=25) {
+                            const w = new THREE.Mesh(winG, winM); w.position.set(px, j, pz); scene.add(w);
+                        }
+                    }
+                }
+            }
+        }
+
+        function startGame() {
+            state = 'PLAY'; document.getElementById('menu').classList.add('hidden');
+            document.getElementById('hud').classList.remove('hidden'); document.getElementById('controls').classList.remove('hidden');
+            player = createHuman(0x3b82f6); player.position.set(0, 0, 0); scene.add(player);
+            player.add(camera); camera.position.set(0, 12, 30);
+        }
+
+        function toggleDriving() {
+            if(driveMode) {
+                driveMode = false; player.visible = true;
+                player.position.copy(activeCar.position).add(new THREE.Vector3(15, 0, 0));
+                player.add(camera); camera.position.set(0, 12, 30);
+                document.getElementById('state-lbl').innerText = "وضعية المشي";
+            } else {
+                const near = carObjects.find(c => c.position.distanceTo(player.position) < 30);
+                if(near) {
+                    driveMode = true; activeCar = near; player.visible = false;
+                    activeCar.add(camera); camera.position.set(0, 30, 60);
+                    document.getElementById('state-lbl').innerText = "وضعية القيادة";
+                }
+            }
+        }
+
+        function jumpHero() { if(!driveMode && player.position.y <= 0.2) player.position.y = 25; }
+
+        function fireBullet() {
+            if(driveMode) return;
+            const b = new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshBasicMaterial({color: 0xffff00}));
+            b.position.copy(player.position).add(new THREE.Vector3(0, 3, 0));
+            const dir = new THREE.Vector3(0,0,-1).applyQuaternion(player.quaternion);
+            b.velocity = dir.multiplyScalar(12); scene.add(b); bullets.push(b);
+        }
+
+        function drawRadar() {
+            mapCtx.fillStyle = '#000'; mapCtx.fillRect(0,0,150,150);
+            const m = 75, s = 0.12;
+            npcs.forEach(n => {
+                mapCtx.fillStyle = '#f00'; mapCtx.beginPath(); mapCtx.arc(m+(n.position.x-player.position.x)*s, m+(n.position.z-player.position.z)*s, 3, 0, 7); mapCtx.fill();
+            });
+            carObjects.forEach(c => {
+                mapCtx.fillStyle = '#fbbf24'; mapCtx.fillRect(m+(c.position.x-player.position.x)*s-3, m+(c.position.z-player.position.z)*s-3, 6, 6);
+            });
+            mapCtx.fillStyle = '#3b82f6'; mapCtx.beginPath(); mapCtx.arc(m, m, 5, 0, 7); mapCtx.fill();
+            mapCtx.strokeStyle = '#fff'; mapCtx.stroke();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = clock.getDelta();
+            if(state === 'PLAY') {
+                if(!driveMode) {
+                    player.rotation.y -= joy.x * 0.05;
+                    player.translateZ(-joy.y * 3.0);
+                    if(player.position.y > 0) player.position.y -= 1.2;
+                    const nearCar = carObjects.some(c => c.position.distanceTo(player.position) < 30);
+                    document.getElementById('car-enter').classList.toggle('hidden', !nearCar);
+                } else {
+                    activeCar.rotation.y -= joy.x * 0.04;
+                    activeCar.translateZ(-joy.y * 6.5);
+                    // تدوير العجلات
+                    activeCar.children.filter(c => c.geometry && c.geometry.type === "CylinderGeometry").forEach(w => w.rotation.x += joy.y * 0.8);
+                }
+                
+                bullets.forEach((b, i) => {
+                    b.position.add(b.velocity);
+                    if(b.position.length() > 2000) { scene.remove(b); bullets.splice(i,1); }
+                });
+
+                drawRadar();
+            }
+            renderer.render(scene, camera);
+        }
+
+        function setupController() {
+            const b = document.getElementById('joy-base'), s = document.getElementById('joy-stick'); let active = false;
+            const move = (e) => {
+                if(!active) return; const r = b.getBoundingClientRect(), cx = r.left + r.width/2, cy = r.top + r.height/2;
+                const tx = (e.touches ? e.touches[0].clientX : e.clientX) - cx, ty = (e.touches ? e.touches[0].clientY : e.clientY) - cy;
+                const d = Math.min(Math.sqrt(tx*tx+ty*ty), 45), a = Math.atan2(ty, tx);
+                s.style.transform = `translate(${Math.cos(a)*d}px, ${Math.sin(a)*d}px)`;
+                joy = { x: (Math.cos(a)*d)/45, y: (Math.sin(a)*d)/45 };
+            };
+            b.addEventListener('touchstart', (e) => { active = true; e.preventDefault(); });
+            window.addEventListener('touchmove', move);
+            window.addEventListener('touchend', () => { active = false; s.style.transform = ''; joy = {x:0, y:0}; });
+        }
+
+        window.onload = init;
+        window.onresize = () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); };
+    </script>
+</body>
+</html>
+
